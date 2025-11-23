@@ -41,11 +41,11 @@ async function sendQuestion(ctx) {
     return;
   }
 
+  // Eng muhim: joriy savolni saqlaymiz
   ctx.session.currentQuestion = q;
 
   const optionsText = q.options.join('\n');
 
-  // Savolni yuboramiz
   const msg = await ctx.replyWithHTML(
     `<b>${questionIndex + 1}/${ctx.session.totalQuestions}</b>\n\n${q.question}\n\n${optionsText}`,
     Markup.inlineKeyboard([
@@ -54,10 +54,8 @@ async function sendQuestion(ctx) {
     ])
   );
 
-  // Timer boshlanadi
+  // Timer
   let timeLeft = 30;
-  ctx.session.timerMessageId = null;
-
   const timerMsg = await ctx.reply(getTimerText(timeLeft));
   ctx.session.timerMessageId = timerMsg.message_id;
 
@@ -65,23 +63,29 @@ async function sendQuestion(ctx) {
     timeLeft--;
     if (timeLeft <= 0) {
       clearInterval(ctx.session.timerInterval);
-      const idx = typeof q.correct === 'number' ? q.correct : ['A','B','C','D'].indexOf(q.correct);
-      await ctx.telegram.editMessageText(ctx.chat.id, timerMsg.message_id, null, `Vaqt tugadi! To‘g‘ri javob: <b>${q.options[idx]}</b>`, { parse_mode: 'HTML' });
+      const correctIdx = getCorrectIndex(q);
+      await ctx.telegram.editMessageText(ctx.chat.id, timerMsg.message_id, null,
+        `Vaqt tugadi! To‘g‘ri javob: <b>${q.options[correctIdx]}</b>`, { parse_mode: 'HTML' });
       nextQuestion(ctx);
     } else {
       await ctx.telegram.editMessageText(ctx.chat.id, timerMsg.message_id, null, getTimerText(timeLeft));
     }
   }, 1000);
 
-  // Timeout (agar interval ishlamasa)
   ctx.session.timeout = setTimeout(() => {
     if (ctx.session.timerInterval) clearInterval(ctx.session.timerInterval);
     nextQuestion(ctx);
   }, 30000);
 }
 
+// Raqam yoki harf bo‘lsa ham ishlaydi
+function getCorrectIndex(q) {
+  if (typeof q.correct === 'number') return q.correct;
+  if (typeof q.correct === 'string') return ['A', 'B', 'C', 'D'].indexOf(q.correct.toUpperCase());
+  return 0;
+}
+
 function getTimerText(seconds) {
-  const bars = '🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥';
   const filled = '🟩'.repeat(Math.round(seconds / 3));
   const empty = '⬜'.repeat(10 - Math.round(seconds / 3));
   return `<b>⏰ Vaqt: ${seconds} sekund</b>\n${filled}${empty}`;
@@ -94,10 +98,11 @@ bot.action(/ans_[A-D]/, (ctx) => {
     ctx.telegram.deleteMessage(ctx.chat.id, ctx.session.timerMessageId).catch(() => {});
   }
 
-  const userAnswer = ctx.match[0].split('_')[1];
+  const userAnswer = ctx.match[0].split('_')[1]; // A, B, C, D
   const q = ctx.session.currentQuestion;
-  const idx = typeof q.correct === 'number' ? q.correct : ['A','B','C','D'].indexOf(q.correct);
-  const correctLetter = ['A','B','C','D'][idx];
+
+  const correctIdx = getCorrectIndex(q);
+  const correctLetter = ['A', 'B', 'C', 'D'][correctIdx];
 
   if (userAnswer === correctLetter) {
     ctx.session.correctAnswers++;
@@ -126,11 +131,12 @@ function showResults(ctx) {
 ${comment} <b>Test yakunlandi!</b> ${comment}
 
 Daraja: <b>${level}</b>
-Natija: <b>${correctAnswers}/${totalQuestions} (${percent}%)</b>
+To‘g‘ri javoblar: <b>${correctAnswers}/${totalQuestions}</b>
+Foiz: <b>${percent}%</b>
 
 Yana boshlash uchun /start bosing!
   `);
 }
 
 bot.launch();
-console.log("Bot vaqt ko‘rsatgich bilan ishga tushdi!");
+console.log("Bot 100% to‘g‘ri ball hisoblaydi + vaqt ko‘rsatadi!");
