@@ -10,7 +10,7 @@ const questions = JSON.parse(fs.readFileSync('questions.json', 'utf8'));
 bot.start((ctx) => {
   ctx.session = {};
   ctx.reply('Assalomu alaykum! Ingliz tili darajangizni sinab ko‘ring\n\nDarajani tanlang:', Markup.inlineKeyboard([
-    [Markup.button.callback('A1 Placement Test', 'A1')],
+    [Markup.button.callback('A1', 'A1')],
     [Markup.button.callback('A2', 'A2')],
     [Markup.button.callback('B1', 'B1')],
     [Markup.button.callback('B2', 'B2')],
@@ -28,7 +28,7 @@ bot.action(/A1|A2|B1|B2|C1|C2/, async (ctx) => {
     totalQuestions: questions[level].length
   };
 
-  await ctx.editMessageText(`Siz ${level} darajasini tanladingiz! Tayyormisiz?\n\n<b>Boshladik!</b>`, { parse_mode: 'HTML' });
+  await ctx.editMessageText(`Siz ${level} darajasini tanladingiz!\n\n<b>Boshladik!</b>`, { parse_mode: 'HTML' });
   sendQuestion(ctx);
 });
 
@@ -41,12 +41,12 @@ async function sendQuestion(ctx) {
     return;
   }
 
-  // Joriy savolni sessiyaga saqlaymiz – bu eng muhim qism!
   ctx.session.currentQuestion = q;
 
   const optionsText = q.options.join('\n');
 
-  await ctx.replyWithHTML(
+  // Savolni yuboramiz
+  const msg = await ctx.replyWithHTML(
     `<b>${questionIndex + 1}/${ctx.session.totalQuestions}</b>\n\n${q.question}\n\n${optionsText}`,
     Markup.inlineKeyboard([
       [Markup.button.callback('A', 'ans_A'), Markup.button.callback('B', 'ans_B')],
@@ -54,19 +54,48 @@ async function sendQuestion(ctx) {
     ])
   );
 
+  // Timer boshlanadi
+  let timeLeft = 30;
+  ctx.session.timerMessageId = null;
+
+  const timerMsg = await ctx.reply(getTimerText(timeLeft));
+  ctx.session.timerMessageId = timerMsg.message_id;
+
+  ctx.session.timerInterval = setInterval(async () => {
+    timeLeft--;
+    if (timeLeft <= 0) {
+      clearInterval(ctx.session.timerInterval);
+      const idx = typeof q.correct === 'number' ? q.correct : ['A','B','C','D'].indexOf(q.correct);
+      await ctx.telegram.editMessageText(ctx.chat.id, timerMsg.message_id, null, `Vaqt tugadi! To‘g‘ri javob: <b>${q.options[idx]}</b>`, { parse_mode: 'HTML' });
+      nextQuestion(ctx);
+    } else {
+      await ctx.telegram.editMessageText(ctx.chat.id, timerMsg.message_id, null, getTimerText(timeLeft));
+    }
+  }, 1000);
+
+  // Timeout (agar interval ishlamasa)
   ctx.session.timeout = setTimeout(() => {
-    const idx = typeof q.correct === 'number' ? q.correct : ['A','B','C','D'].indexOf(q.correct);
-    ctx.reply(`⏰ Vaqt tugadi! To‘g‘ri javob: <b>${q.options[idx]}</b>`, { parse_mode: 'HTML' });
+    if (ctx.session.timerInterval) clearInterval(ctx.session.timerInterval);
     nextQuestion(ctx);
   }, 30000);
 }
 
+function getTimerText(seconds) {
+  const bars = '🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥';
+  const filled = '🟩'.repeat(Math.round(seconds / 3));
+  const empty = '⬜'.repeat(10 - Math.round(seconds / 3));
+  return `<b>⏰ Vaqt: ${seconds} sekund</b>\n${filled}${empty}`;
+}
+
 bot.action(/ans_[A-D]/, (ctx) => {
   clearTimeout(ctx.session.timeout);
+  if (ctx.session.timerInterval) clearInterval(ctx.session.timerInterval);
+  if (ctx.session.timerMessageId) {
+    ctx.telegram.deleteMessage(ctx.chat.id, ctx.session.timerMessageId).catch(() => {});
+  }
 
-  const userAnswer = ctx.match[0].split('_')[1]; // A, B, C yoki D
-  const q = ctx.session.currentQuestion;         // To'g'ri savolni olamiz!
-
+  const userAnswer = ctx.match[0].split('_')[1];
+  const q = ctx.session.currentQuestion;
   const idx = typeof q.correct === 'number' ? q.correct : ['A','B','C','D'].indexOf(q.correct);
   const correctLetter = ['A','B','C','D'][idx];
 
@@ -88,23 +117,20 @@ function showResults(ctx) {
   const percent = Math.round((correctAnswers / totalQuestions) * 100);
 
   let comment = '';
-  if (percent >= 90) comment = 'Ajoyib natija!';
+  if (percent >= 90) comment = 'Ajoyib!';
   else if (percent >= 70) comment = 'Juda yaxshi!';
-  else if (percent >= 50) comment = 'Yaxshi urinish!';
+  else if (percent >= 50) comment = 'Yaxshi!';
   else comment = 'Yana mashq qiling!';
 
   ctx.replyWithHTML(`
-<b>Test yakunlandi!</b> 
+${comment} <b>Test yakunlandi!</b> ${comment}
 
 Daraja: <b>${level}</b>
-To'g'ri javoblar: <b>${correctAnswers}/${totalQuestions}</b>
-Foiz: <b>${percent}%</b>
-
-${comment}
+Natija: <b>${correctAnswers}/${totalQuestions} (${percent}%)</b>
 
 Yana boshlash uchun /start bosing!
   `);
 }
 
 bot.launch();
-console.log("Bot 100% ishlaydigan holatda ishga tushdi – ballar to'g'ri hisoblanadi!");
+console.log("Bot vaqt ko‘rsatgich bilan ishga tushdi!");
