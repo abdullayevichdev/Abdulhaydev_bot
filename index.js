@@ -5,10 +5,8 @@ require('dotenv').config();
 const bot = new Telegraf(process.env.TOKEN);
 bot.use(session());
 
-// questions.json faylini o‘qing
 const questions = JSON.parse(fs.readFileSync('questions.json', 'utf8'));
 
-// /start komandasi
 bot.start((ctx) => {
   ctx.session = {};
   ctx.reply('Assalomu alaykum! Ingliz tili darajangizni sinab ko‘ring\n\nDarajani tanlang:', Markup.inlineKeyboard([
@@ -21,22 +19,21 @@ bot.start((ctx) => {
   ]));
 });
 
-// Level tanlash
 bot.action(/A1|A2|B1|B2|C1|C2/, async (ctx) => {
   const level = ctx.match[0];
   ctx.session = {
     level,
     questionIndex: 0,
     correctAnswers: 0,
-    totalQuestions: questions[level].length,
-    selectedAnswers: []
+    totalQuestions: questions[level].length
   };
 
-  await ctx.editMessageText(`Siz ${level} darajasini tanladingiz!\nJami 30 ta savol. Tayyormisiz?\n\n1-savol kelyapti...`, { parse_mode: 'HTML' });
-  setTimeout(() => sendQuestion(ctx), 1500);
+  await ctx.editMessageText(`Siz ${level} darajasini tanladingiz! Tayyormisiz?\n\n<b>Boshladik!</b>`, { parse_mode: 'HTML' });
+
+  // KECHIKISH YO‘Q – darrov 1-savol
+  sendQuestion(ctx);
 });
 
-// Savolni yuborish
 async function sendQuestion(ctx) {
   const { level, questionIndex } = ctx.session;
   const q = questions[level][questionIndex];
@@ -56,60 +53,50 @@ async function sendQuestion(ctx) {
     ])
   );
 
-  // 30 soniya vaqt
   ctx.session.timeout = setTimeout(() => {
-    const correctIndex = typeof q.correct === 'number' ? q.correct : ['A','B','C','D'].indexOf(q.correct);
-    const correctText = q.options[correctIndex];
-    ctx.reply(`Vaqt tugadi! To‘g‘ri javob: <b>${correctText}</b>`, { parse_mode: 'HTML' });
+    const idx = typeof q.correct === 'number' ? q.correct : ['A','B','C','D'].indexOf(q.correct);
+    ctx.reply(`Vaqt tugadi! To‘g‘ri javob: <b>${q.options[idx]}</b>`, { parse_mode: 'HTML' });
     nextQuestion(ctx);
   }, 30000);
 }
 
-// Javobni qabul qilish
 bot.action(/ans_[A-D]/, (ctx) => {
   clearTimeout(ctx.session.timeout);
 
-  const userAnswer = ctx.match[0].split('_')[1]; // A, B, C yoki D
-  const { level, questionIndex } = ctx.session;
-  const q = questions[level][questionIndex];
-
-  // Har qanday formatdagi correct ni qo‘llab-quvvatlaydi
-  const correctIndex = typeof q.correct === 'number' ? q.correct : ['A','B','C','D'].indexOf(q.correct);
-  const correctLetter = ['A','B','C','D'][correctIndex];
+  const userAnswer = ctx.match[0].split('_')[1];
+  const q = questions[ctx.session.level][ctx.session.questionIndex];
+  const idx = typeof q.correct === 'number' ? q.correct : ['A','B','C','D'].indexOf(q.correct);
+  const correctLetter = ['A','B','C','D'][idx];
 
   if (userAnswer === correctLetter) {
     ctx.session.correctAnswers++;
   }
 
   ctx.deleteMessage().catch(() => {});
+  
+  // KECHIKISH YO‘Q – darrov keyingi savol
   nextQuestion(ctx);
 });
 
-// Keyingi savol
 function nextQuestion(ctx) {
   ctx.session.questionIndex++;
-  setTimeout(() => sendQuestion(ctx), 800);
+  sendQuestion(ctx); // setTimeout yo‘q!
 }
 
-// Natija
 function showResults(ctx) {
   const { correctAnswers, totalQuestions, level } = ctx.session;
-  const percentage = Math.round((correctAnswers / totalQuestions) * 100);
+  const percent = Math.round((correctAnswers / totalQuestions) * 100);
+  const emoji = percent >= 90 ? 'Ajoyib!' : percent >= 70 ? 'Juda yaxshi!' : percent >= 50 ? 'Yaxshi!' : 'Yana mashq qiling';
 
-  const emoji = percentage >= 90 ? 'Ajoyib!' : percentage >= 70 ? 'Juda yaxshi!' : percentage >= 50 ? 'Yaxshi!' : 'Yana mashq qiling';
-
-  const resultText = `
+  ctx.replyWithHTML(`
 ${emoji} <b>Test yakunlandi!</b> ${emoji}
 
 Daraja: <b>${level}</b>
-To‘g‘ri javoblar: <b>${correctAnswers}/${totalQuestions}</b>
-Foiz: <b>${percentage}%</b>
+Natija: <b>${correctAnswers}/${totalQuestions} (${percent}%)</b>
 
-Yana sinab ko‘rmoqchi bo‘lsangiz /start buyrug‘ini bering!
-`;
-
-  ctx.replyWithHTML(resultText);
+Yana boshlash uchun /start bosing!
+  `);
 }
 
 bot.launch();
-console.log("Bot ishga tushdi – hammasi ishlayapti!");
+console.log("Bot darrov ishlaydigan holatda ishga tushdi!");
