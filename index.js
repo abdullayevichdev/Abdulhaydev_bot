@@ -17,16 +17,14 @@ bot.catch((err, ctx) => {
 // Start command
 bot.start(startQuiz);
 
+// Next question button
+bot.action('next_question', handleAnswer);
+
 // Level selection
 bot.action(/A1|A2|B1|B2|C1|C2/, selectLevel);
 
 // Answer handling
 bot.action(/ans_[A-D]/, handleAnswer);
-
-// Error handling for unhandled actions
-bot.on('message', (ctx) => {
-  return ctx.reply('Iltimos, /start buyrug\'ini bosing yoki quyidagi tugmalardan foydalaning.');
-});
 
 // Start the bot
 bot.launch()
