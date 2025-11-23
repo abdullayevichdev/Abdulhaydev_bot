@@ -29,7 +29,7 @@ bot.action(/A1|A2|B1|B2|C1|C2/, async (ctx) => {
     questionIndex: 0,
     correctAnswers: 0,
     totalQuestions: questions[level].length,
-    selectedAnswers: [] // agar keyinroq ko‘rsatmoqchi bo‘lsangiz foydali
+    selectedAnswers: []
   };
 
   await ctx.editMessageText(`Siz ${level} darajasini tanladingiz!\nJami 30 ta savol. Tayyormisiz?\n\n1-savol kelyapti...`, { parse_mode: 'HTML' });
@@ -58,34 +58,34 @@ async function sendQuestion(ctx) {
 
   // 30 soniya vaqt beramiz
   ctx.session.timeout = setTimeout(() => {
-    ctx.reply(`⏰ Vaqt tugadi! To‘g‘ri javob: <b>${q.answer}</b>`, { parse_mode: 'HTML' });
+    const correctLetter = q.options.find(opt => opt.startsWith(q.correct)) || q.correct;
+    ctx.reply(`Vaqt tugadi! To‘g‘ri javob: <b>${correctLetter}</b>`, { parse_mode: 'HTML' });
     nextQuestion(ctx);
   }, 30000);
 }
 
-// Javobni qabul qilish (hech narsa demaymiz, faqat yozib olamiz)
+// Javobni qabul qilish
 bot.action(/ans_[A-D]/, (ctx) => {
   clearTimeout(ctx.session.timeout);
 
-  const userAnswer = ctx.match[0].split('_')[1]; // ans_A → A
+  const userAnswer = ctx.match[0].split('_')[1]; // A, B, C yoki D
   const { level, questionIndex } = ctx.session;
-  const correctAnswer = questions[level][questionIndex].answer;
+  
+  // BU YER ASOSIY O‘ZGARTIRISH – .correct ishlatamiz!
+  const correctAnswer = questions[level][questionIndex].correct;
 
-  // Javobni saqlaymiz
   if (userAnswer === correctAnswer) {
     ctx.session.correctAnswers++;
   }
 
-  // Hech qanday "To‘g‘ri" yoki "Noto‘g‘ri" demaymiz!
-  // Faqat keyingi savolga o‘tamiz
-  ctx.deleteMessage().catch(() => {}); // eski xabarni o‘chiramiz (ixtiyoriy)
+  ctx.deleteMessage().catch(() => {});
   nextQuestion(ctx);
 });
 
 // Keyingi savolga o‘tish
 function nextQuestion(ctx) {
   ctx.session.questionIndex++;
-  setTimeout(() => sendQuestion(ctx), 800); // biroz pauza
+  setTimeout(() => sendQuestion(ctx), 800);
 }
 
 // Natijani ko‘rsatish
@@ -95,10 +95,10 @@ function showResults(ctx) {
   const percentage = Math.round((correctAnswers / totalQuestions) * 100);
 
   let emoji = '';
-  if (percentage >= 90) emoji = '';
-  else if (percentage >= 70) emoji = '';
-  else if (percentage >= 50) emoji = '';
-  else emoji = '';
+  if (percentage >= 90) emoji = 'Ajoyib!';
+  else if (percentage >= 70) emoji = 'Juda yaxshi!';
+  else if (percentage >= 50) emoji = 'Yaxshi!';
+  else emoji = 'Yana mashq qiling';
 
   const resultText = `
 ${emoji} <b>Test yakunlandi!</b> ${emoji}
