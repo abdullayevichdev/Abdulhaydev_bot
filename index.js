@@ -10,7 +10,7 @@ const questions = JSON.parse(fs.readFileSync('questions.json', 'utf8'));
 
 // /start komandasi
 bot.start((ctx) => {
-  ctx.session = {}; // sessiyani tozalash
+  ctx.session = {};
   ctx.reply('Assalomu alaykum! Ingliz tili darajangizni sinab ko‘ring\n\nDarajani tanlang:', Markup.inlineKeyboard([
     [Markup.button.callback('A1', 'A1')],
     [Markup.button.callback('A2', 'A2')],
@@ -36,7 +36,7 @@ bot.action(/A1|A2|B1|B2|C1|C2/, async (ctx) => {
   setTimeout(() => sendQuestion(ctx), 1500);
 });
 
-// Savolni yuborish funksiyasi
+// Savolni yuborish
 async function sendQuestion(ctx) {
   const { level, questionIndex } = ctx.session;
   const q = questions[level][questionIndex];
@@ -56,10 +56,11 @@ async function sendQuestion(ctx) {
     ])
   );
 
-  // 30 soniya vaqt beramiz
+  // 30 soniya vaqt
   ctx.session.timeout = setTimeout(() => {
-    const correctLetter = q.options.find(opt => opt.startsWith(q.correct)) || q.correct;
-    ctx.reply(`Vaqt tugadi! To‘g‘ri javob: <b>${correctLetter}</b>`, { parse_mode: 'HTML' });
+    const correctIndex = typeof q.correct === 'number' ? q.correct : ['A','B','C','D'].indexOf(q.correct);
+    const correctText = q.options[correctIndex];
+    ctx.reply(`Vaqt tugadi! To‘g‘ri javob: <b>${correctText}</b>`, { parse_mode: 'HTML' });
     nextQuestion(ctx);
   }, 30000);
 }
@@ -70,11 +71,13 @@ bot.action(/ans_[A-D]/, (ctx) => {
 
   const userAnswer = ctx.match[0].split('_')[1]; // A, B, C yoki D
   const { level, questionIndex } = ctx.session;
-  
-  // BU YER ASOSIY O‘ZGARTIRISH – .correct ishlatamiz!
-  const correctAnswer = questions[level][questionIndex].correct;
+  const q = questions[level][questionIndex];
 
-  if (userAnswer === correctAnswer) {
+  // Har qanday formatdagi correct ni qo‘llab-quvvatlaydi
+  const correctIndex = typeof q.correct === 'number' ? q.correct : ['A','B','C','D'].indexOf(q.correct);
+  const correctLetter = ['A','B','C','D'][correctIndex];
+
+  if (userAnswer === correctLetter) {
     ctx.session.correctAnswers++;
   }
 
@@ -82,33 +85,25 @@ bot.action(/ans_[A-D]/, (ctx) => {
   nextQuestion(ctx);
 });
 
-// Keyingi savolga o‘tish
+// Keyingi savol
 function nextQuestion(ctx) {
   ctx.session.questionIndex++;
   setTimeout(() => sendQuestion(ctx), 800);
 }
 
-// Natijani ko‘rsatish
+// Natija
 function showResults(ctx) {
   const { correctAnswers, totalQuestions, level } = ctx.session;
-  const wrongAnswers = totalQuestions - correctAnswers;
   const percentage = Math.round((correctAnswers / totalQuestions) * 100);
 
-  let emoji = '';
-  if (percentage >= 90) emoji = 'Ajoyib!';
-  else if (percentage >= 70) emoji = 'Juda yaxshi!';
-  else if (percentage >= 50) emoji = 'Yaxshi!';
-  else emoji = 'Yana mashq qiling';
+  const emoji = percentage >= 90 ? 'Ajoyib!' : percentage >= 70 ? 'Juda yaxshi!' : percentage >= 50 ? 'Yaxshi!' : 'Yana mashq qiling';
 
   const resultText = `
 ${emoji} <b>Test yakunlandi!</b> ${emoji}
 
 Daraja: <b>${level}</b>
-To‘g‘ri javoblar: <b>${correctAnswers}/30</b>
-Noto‘g‘ri javoblar: <b>${wrongAnswers}/30</b>
+To‘g‘ri javoblar: <b>${correctAnswers}/${totalQuestions}</b>
 Foiz: <b>${percentage}%</b>
-
-${percentage >= 80 ? 'Ajoyib natija! Davom eting' : 'Yaxshi urinish! Yana mashq qiling'}
 
 Yana sinab ko‘rmoqchi bo‘lsangiz /start buyrug‘ini bering!
 `;
@@ -117,4 +112,4 @@ Yana sinab ko‘rmoqchi bo‘lsangiz /start buyrug‘ini bering!
 }
 
 bot.launch();
-console.log("Bot ishga tushdi! Endi faqat oxirida natija chiqadi");
+console.log("Bot ishga tushdi – hammasi ishlayapti!");
