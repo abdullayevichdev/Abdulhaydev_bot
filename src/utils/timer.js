@@ -1,6 +1,8 @@
 const { getCorrectIndex } = require('./helpers');
 
-const TIMER_DURATION = 10; // 10 seconds
+// Default timer durations (in seconds)
+const DEFAULT_QUIZ_TIMER = 10; // 10 seconds for regular quiz
+const READING_TIMER = 30; // 30 seconds for reading tests
 
 // This will be called when the timer runs out
 let onTimeUpCallback = null;
@@ -10,13 +12,23 @@ const setOnTimeUp = (callback) => {
   onTimeUpCallback = callback;
 };
 
-const startTimer = (ctx, question, timerMsg) => {
+/**
+ * Starts a timer for the current question
+ * @param {Object} ctx - Telegraf context
+ * @param {Object} question - Current question object
+ * @param {Object} timerMsg - Timer message object
+ * @param {number} [duration] - Optional custom duration in seconds
+ */
+const startTimer = (ctx, question, timerMsg, duration) => {
+  // Determine duration based on test type or use provided duration
+  const timerDuration = duration || 
+    (ctx.session.testType === 'reading' ? READING_TIMER : DEFAULT_QUIZ_TIMER);
   // Clear any existing timers first
   stopTimer(ctx);
   
   // Store timer data in session
   const startTime = Date.now();
-  const endTime = startTime + (TIMER_DURATION * 1000);
+  const endTime = startTime + (timerDuration * 1000);
   
   // Create a reference to the interval so we can clear it
   const timerData = {
@@ -94,52 +106,52 @@ const startTimer = (ctx, question, timerMsg) => {
 };
 
 async function timeUp(ctx, question, timerMsg) {
-  try {
-    if (!question || !question.options) {
-      console.error('Invalid question in timeUp:', question);
-      if (onTimeUpCallback) {
-        return onTimeUpCallback(ctx);
-      }
-      return;
+  // Clear any existing timer first
+  if (ctx.session.timer) {
+    if (ctx.session.timer.interval) {
+      clearInterval(ctx.session.timer.interval);
+      ctx.session.timer.interval = null;
     }
-
-    const correctIdx = getCorrectIndex(question);
-    const correctAnswer = question.options[correctIdx];
-    const correctLetter = ['A', 'B', 'C', 'D'][correctIdx];
-    
-    // Show the correct answer with the question
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      timerMsg.message_id,
-      null,
-      `⏰ Vaqt tugadi!\n\n${question.question}\n\n✅ To'g'ri javob: <b>${correctLetter}. ${correctAnswer}</b>`,
-      { 
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: 'Keyingi savol', callback_data: 'next_question' }]
-          ]
-        }
+    if (ctx.session.timer.timeout) {
+      clearTimeout(ctx.session.timer.timeout);
+      ctx.session.timer.timeout = null;
+    }
+    delete ctx.session.timer;
+  }
+  
+  try {
+    // Delete the timer message if it exists
+    if (ctx.session.timerMessageId) {
+      try {
+        await ctx.telegram.deleteMessage(ctx.chat.id, ctx.session.timerMessageId);
+      } catch (e) {
+        console.error('Error deleting timer message:', e);
       }
-    );
+      delete ctx.session.timerMessageId;
+    }
     
-    // Store the correct answer in session
-    ctx.session.waitingForNext = true;
-    
-    // Set a timeout to auto-proceed after 3 seconds
-    ctx.session.autoNextTimeout = setTimeout(() => {
-      if (ctx.session.waitingForNext && onTimeUpCallback) {
-        onTimeUpCallback(ctx);
+    // Delete the question message if it exists
+    if (ctx.session.questionMessageId) {
+      try {
+        await ctx.telegram.deleteMessage(ctx.chat.id, ctx.session.questionMessageId);
+      } catch (e) {
+        console.error('Error deleting question message:', e);
       }
-    }, 3000);
+      delete ctx.session.questionMessageId;
+    }
+    
+    // Proceed to next question
+    if (onTimeUpCallback) {
+      await onTimeUpCallback(ctx);
+    }
     
   } catch (error) {
-    console.error('Xatolik vaqt tugashida:', error);
+    console.error('Error in timeUp:', error);
     if (onTimeUpCallback) {
       try {
         await onTimeUpCallback(ctx);
       } catch (e) {
-        console.error('Xatolik keyingi savolga o\'tishda:', e);
+        console.error('Error in next question callback:', e);
       }
     }
   }
