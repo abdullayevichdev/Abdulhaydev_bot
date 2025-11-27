@@ -1,7 +1,7 @@
 const { Markup } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
-const { startTimer, stopTimer, setOnTimeUp } = require('../utils/timer');
+const { startTimer, stopTimer, setOnTimeUp, getTimerText } = require('../utils/timer');
 
 // Load reading tests
 const readingTestsPath = path.join(__dirname, '../../reading_tests.json');
@@ -89,7 +89,10 @@ const sendReadingQuestion = async (ctx) => {
     ctx.session.questionMessageId = sentMessage.message_id;
     
     // Start timer for the reading question (30 seconds)
-    startTimer(ctx, null, null, 30); // 30 seconds for reading questions
+    // Send a timer message so the timer module can edit it each second
+    const timerMsg = await ctx.reply(getTimerText(30, 30), { parse_mode: 'HTML' });
+    ctx.session.timerMessageId = timerMsg.message_id;
+    startTimer(ctx, null, timerMsg, 30); // 30 seconds for reading questions
 
   } catch (error) {
     console.error('Error sending reading question:', error);
@@ -134,9 +137,11 @@ const handleReadingAnswer = async (ctx, answerIndex) => {
     if (answerIndex !== null && answerIndex === question.correct) {
       ctx.session.correctAnswers = correctAnswers + 1;
       message = '✅ *To\'g\'ri!*\n\n';
+      await ctx.reply('✅ To\'g\'ri!');
     } else if (answerIndex !== null) {
       const correctLetter = String.fromCharCode(65 + question.correct);
       message = `❌ *Noto'g'ri!*\nTo'g'ri javob: *${correctLetter}. ${question.options[question.correct]}*\n\n`;
+      await ctx.reply('❌ Noto\'g\'ri!');
     } else {
       const correctLetter = String.fromCharCode(65 + question.correct);
       message = `⏰ *Vaqt tugadi!*\nTo'g'ri javob: *${correctLetter}. ${question.options[question.correct]}*\n\n`;
@@ -215,7 +220,7 @@ const showReadingResults = async (ctx, previousMessage = '') => {
 const handleReadingNavigation = async (ctx) => {
   const action = ctx.match[0];
   
-  // Handle pause button
+  // Handle pause buttons
   if (action === 'reading_pause') {
     if (ctx.session.timer) {
       stopTimer(ctx);

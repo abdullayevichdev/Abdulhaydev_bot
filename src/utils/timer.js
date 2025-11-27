@@ -12,6 +12,29 @@ const setOnTimeUp = (callback) => {
   onTimeUpCallback = callback;
 };
 
+// Function to clean up timer resources
+const cleanupTimer = (ctx) => {
+  if (!ctx.session) return;
+  
+  // Clear any existing interval
+  if (ctx.session.timer?.interval) {
+    clearInterval(ctx.session.timer.interval);
+    ctx.session.timer.interval = null;
+  }
+  
+  // Clear any existing timeout
+  if (ctx.session.timer?.timeout) {
+    clearTimeout(ctx.session.timer.timeout);
+    ctx.session.timer.timeout = null;
+  }
+  
+  // Clean up timer reference
+  if (ctx.session.timer) {
+    delete ctx.session.timer;
+  }
+};
+
+
 /**
  * Starts a timer for the current question
  * @param {Object} ctx - Telegraf context
@@ -19,90 +42,121 @@ const setOnTimeUp = (callback) => {
  * @param {Object} timerMsg - Timer message object
  * @param {number} [duration] - Optional custom duration in seconds
  */
-const startTimer = (ctx, question, timerMsg, duration) => {
-  // Determine duration based on test type or use provided duration
-  const timerDuration = duration || 
-    (ctx.session.testType === 'reading' ? READING_TIMER : DEFAULT_QUIZ_TIMER);
+const startTimer = (ctx, question, timerMsg, duration = DEFAULT_QUIZ_TIMER) => {
+  // Clean up any existing timers first
+  cleanupTimer(ctx);
   // Clear any existing timers first
   stopTimer(ctx);
   
+  // Initialize session if not exists
+  if (!ctx.session) {
+    ctx.session = {};
+  }
+  
   // Store timer data in session
   const startTime = Date.now();
-  const endTime = startTime + (timerDuration * 1000);
+  const endTime = startTime + (duration * 1000);
   
-  // Create a reference to the interval so we can clear it
+  // Create timer data
   const timerData = {
     startTime,
     endTime,
+    duration,
     interval: null,
-    timeout: null
+    timeout: null,
+    messageId: timerMsg.message_id,
+    chatId: timerMsg.chat.id
   };
   
-  // Update the timer immediately
-  updateTimer();
-  
-  // Set up the interval for updating the timer display
-  timerData.interval = setInterval(updateTimer, 500); // Update twice per second for smoother display
-  
-  // Set up the timeout for when the timer ends
-  timerData.timeout = setTimeout(() => {
-    stopTimer(ctx);
-    timeUp(ctx, question, timerMsg);
-  }, TIMER_DURATION * 1000);
-  
   // Store the timer data in the session
-  if (!ctx.session) ctx.session = {};
   ctx.session.timer = timerData;
   
-  async function updateTimer() {
+  // Function to update the timer display
+    const updateTimer = async () => {
     try {
-      if (!ctx || !ctx.session || !ctx.session.timer) return;
+      if (!ctx.session?.timer) return;
       
       const now = Date.now();
-      const timeLeft = Math.max(0, Math.ceil((endTime - now) / 1000));
+      let remaining = Math.ceil((endTime - now) / 1000);
       
-      if (timeLeft <= 0) {
-        stopTimer(ctx);
-        await timeUp(ctx, question, timerMsg);
-        return;
+      // Ensure remaining is not negative
+      remaining = Math.max(0, remaining);
+      
+      // Only update if time has changed or it's the first run
+      if (ctx.session.lastRemaining !== remaining) {
+        ctx.session.lastRemaining = remaining;
+        
+        // Update the timer message
+        try {
+          await ctx.telegram.editMessageText(
+            timerMsg.chat.id,
+            timerMsg.message_id,
+            undefined,
+            getTimerText(remaining, duration),
+            { parse_mode: 'HTML' }
+          );
+        } catch (error) {
+          // Ignore message not modified errors
+          if (!error.message.includes('message is not modified')) {
+            throw error;
+          }
+        }
       }
       
-      await updateTimerDisplay(timeLeft);
+      // If time's up, clear the interval and move to next question
+      if (remaining <= 0) {
+        stopTimer(ctx);
+        if (onTimeUpCallback) {
+          try {
+            // Delete the question message
+            if (ctx.session.questionMessageId) {
+              try {
+                await ctx.telegram.deleteMessage(
+                  ctx.chat.id, 
+                  ctx.session.questionMessageId
+                );
+              } catch (e) {}
+              delete ctx.session.questionMessageId;
+            }
+            // Delete the timer message
+            if (ctx.session.timerMessageId) {
+              try {
+                await ctx.telegram.deleteMessage(
+                  ctx.chat.id,
+                  ctx.session.timerMessageId
+                );
+              } catch (e) {}
+              delete ctx.session.timerMessageId;
+            }
+            
+            await onTimeUpCallback(ctx);
+          } catch (error) {
+            console.error('Error in time up callback:', error);
+          }
+        }
+      }
     } catch (error) {
-      console.error('Xatolik vaqtni yangilashda:', error);
+      console.error('Timer update error:', error);
       stopTimer(ctx);
     }
-  }
+  };
   
-  async function updateTimerDisplay(seconds) {
-    try {
-      if (!ctx || !ctx.chat || !timerMsg) return;
-      
-      const newText = getTimerText(seconds);
-      
-      // Skip if message content is the same
-      if (ctx.session.lastTimerText === newText) {
-        return;
-      }
-      
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        timerMsg.message_id,
-        null,
-        newText,
-        { parse_mode: 'HTML' }
-      );
-      
-      // Store the last displayed text
-      ctx.session.lastTimerText = newText;
-    } catch (error) {
-      // Ignore "message not modified" and "chat not found" errors
-      if (!error.message.includes('message is not modified') && 
-          !error.message.includes('chat not found')) {
-        console.error('Xatolik vaqtni ko\'rsatishda:', error);
-      }
+  // Initial update
+  updateTimer();
+  
+  // Update every second
+  timerData.interval = setInterval(updateTimer, 1000);
+  
+  // Set timeout for when the timer ends
+  timerData.timeout = setTimeout(() => {
+    stopTimer(ctx);
+    if (onTimeUpCallback) {
+      onTimeUpCallback(ctx);
     }
-  }
+  }, duration * 1000);
+  
+  // Store the interval and timeout in the timer data
+  ctx.session.timer = timerData;
 };
 
 async function timeUp(ctx, question, timerMsg) {
@@ -168,7 +222,9 @@ async function proceedToNextQuestion(ctx) {
     
     if (ctx.session) {
       ctx.session.questionIndex = (ctx.session.questionIndex || 0) + 1;
-      await nextQuestion(ctx);
+      // Import the quiz controller to access nextQuestion
+      const { sendQuestion } = require('../controllers/quizController');
+      await sendQuestion(ctx);
     } else {
       await ctx.reply('Xatolik yuz berdi. Iltimos, qaytadan urining /start');
     }
@@ -179,53 +235,33 @@ async function proceedToNextQuestion(ctx) {
 }
 
 const stopTimer = (ctx) => {
-  try {
-    // Check if session exists and has a timer
-    if (!ctx || !ctx.session || !ctx.session.timer) return;
-    
-    const timer = ctx.session.timer;
-    
-    // Clear the interval if it exists
-    if (timer.interval) {
-      clearInterval(timer.interval);
-      timer.interval = null;
-    }
-    
-    // Clear the timeout if it exists
-    if (timer.timeout) {
-      clearTimeout(timer.timeout);
-      timer.timeout = null;
-    }
-    
-    // Clean up the timer data
-    delete ctx.session.timer;
-    
-  } catch (error) {
-    console.error('Xatolik taymerni to\'xtatishda:', error);
-    // If there's an error, try to clean up as much as possible
-    if (ctx && ctx.session) {
-      delete ctx.session.timer;
-    }
+  if (!ctx.session) return;
+  
+  // Clean up timer resources
+  cleanupTimer(ctx);
+  
+  // Clear any existing timer references
+  if (ctx.session.timerMessageId) {
+    delete ctx.session.timerMessageId;
+  }
+  
+  // Reset last remaining time
+  if (ctx.session.lastRemaining !== undefined) {
+    delete ctx.session.lastRemaining;
   }
 };
 
-const getTimerText = (seconds) => {
-  if (seconds <= 0) {
-    return "⏰ Vaqt tugadi!";
-  }
+// Function to format time text
+const getTimerText = (seconds, timerDuration = 10) => {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  const timeString = `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
   
-  // Calculate progress (0 to 1)
-  const progress = Math.min(1, seconds / TIMER_DURATION);
-  const filledCount = Math.round(progress * 10);
+  // Create a progress bar with green for remaining time and gray for elapsed
+  const progress = Math.max(0, Math.min(10, Math.round((seconds / timerDuration) * 10)));
+  const progressBar = '🟢'.repeat(progress) + '⚪'.repeat(10 - progress);
   
-  // Create progress bar
-  const filled = '🟩'.repeat(filledCount);
-  const empty = '⬜'.repeat(10 - filledCount);
-  
-  // Add extra space after the timer text to ensure consistent width
-  const timerText = `⏰ Vaqt: ${seconds < 10 ? ' ' : ''}${seconds} sekund qoldi`;
-  
-  return `<b>${timerText}</b>\n${filled}${empty}`;
+  return `⏳ <b>${timeString}</b>\n${progressBar}`;
 };
 
 module.exports = {

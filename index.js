@@ -1,85 +1,204 @@
-const { Telegraf, session, Scenes, Stage } = require('telegraf');
+require('dotenv').config();
+const { Telegraf, session } = require('telegraf');
 const { Markup } = require('telegraf');
 const config = require('./config');
-const { startQuiz, selectLevel, handleAnswer, sendQuestion } = require('./src/controllers/quizController');
-const { 
-  startReadingTest, 
-  selectReadingLevel, 
-  startSelectedReadingTest, 
-  handleReadingAnswer, 
-  handleReadingNavigation 
-} = require('./src/controllers/readingController');
-const { getTimerText } = require('./src/utils/timer');
 
-// Initialize bot
-const bot = new Telegraf(config.botToken);
+const BOT_TOKEN = process.env.BOT_TOKEN || process.env.TOKEN || config.botToken;
+if (!BOT_TOKEN) {
+  console.error('BOT TOKEN topilmadi. Iltimos `.env` faylida BOT_TOKEN o\'rniga tokenni qo\'shing.');
+  process.exit(1);
+}
 
-// Session middleware
+const { addUser, getStats, updateBestScore, getLeaderboard } = require('./src/utils/users');
+const { motherTongueQuestions, topics } = require('./src/utils/questions_mother');
+const { startMotherQuiz, handleMotherAnswer, handleEndQuiz } = require('./src/utils/quizMother');
+
+const { startQuiz, selectLevel, handleAnswer } = require('./src/controllers/quizController');
+const { startReadingTest, selectReadingLevel, startSelectedReadingTest, handleReadingAnswer, handleReadingNavigation } = require('./src/controllers/readingController');
+
+const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
-// Error handling
+// XATOLIKLAR
 bot.catch((err, ctx) => {
-  console.error(`Error for ${ctx.updateType}`, err);
-  return ctx.reply('Xatolik yuz berdi. Iltimos, qaytadan urinib ko\'ring /start');
+  console.error('XATO:', err);
+  ctx.reply('❌ Xatolik yuz berdi. /start bosing.');
 });
 
-// Start command
+// /start – ASOSIY MENU
 bot.start((ctx) => {
-  return ctx.reply(
-    'Assalomu alaykum! Quyidagi menyudan kerakli bo\'limni tanlang:',
+  addUser(ctx.from);
+  ctx.reply(
+    '🇺🇿 Assalomu alaykum! Bot yangilandi!\n\nQuyidagi testlardan birini tanlang:',
     Markup.inlineKeyboard([
-      [Markup.button.callback('📝 Oddiy Test', 'start_quiz')],
-      [Markup.button.callback('📖 Reading Test', 'start_reading')]
+      [Markup.button.callback('🧪 Oddiy Test', 'start_quiz')],
+      [Markup.button.callback('📖 Reading Test', 'start_reading')],
+      [Markup.button.callback('📚 Ona tili testlari', 'mother_tongue')],
+      [Markup.button.callback('🏆 Reyting', 'show_top')]
     ])
   );
 });
 
-// Main menu navigation
+// ==================== INGLIZ TILI TESTLARI ====================
 bot.action('start_quiz', startQuiz);
+bot.action(['A1','A2','B1','B2','C1','C2'], selectLevel);
+bot.action(/ans_[A-D]/, handleAnswer);
+bot.action(['next_question','pause_quiz','restart_quiz'], handleAnswer);
+
+// ==================== READING TESTLARI ====================
 bot.action('start_reading', startReadingTest);
-
-// Handle quiz level selection
-bot.action(['A1', 'A2', 'B1', 'B2', 'C1', 'C2'], selectLevel);
-
-// Handle reading test level selection
 bot.action(/reading_(A1|A2|B1|B2|C1|C2)/, selectReadingLevel);
-
-// Handle reading test start
 bot.action('start_reading_test', startSelectedReadingTest);
+bot.action(/reading_ans_\d+/, (ctx) => handleReadingAnswer(ctx, parseInt(ctx.match[0].split('_')[2])));
+bot.action(['reading_next','reading_restart','back_to_reading_menu','back_to_main','reading_pause'], handleReadingNavigation);
 
-// Handle reading test answers
-bot.action(/reading_ans_\d+/, (ctx) => {
-  const answerIndex = parseInt(ctx.match[0].split('_')[2]);
-  return handleReadingAnswer(ctx, answerIndex);
+// ==================== ONA TILI TESTLARI ====================
+bot.action('mother_tongue', (ctx) => {
+  ctx.answerCbQuery();
+  const kb = topics.map((t, i) => [Markup.button.callback(t, `mother_topic_${i}`)]);
+  ctx.editMessageText?.('📚 Ona tili testlari – mavzuni tanlang:', { reply_markup: { inline_keyboard: kb } })
+    || ctx.reply('📚 Ona tili testlari – mavzuni tanlang:', { reply_markup: { inline_keyboard: kb } });
 });
 
-// Handle reading test navigation
-bot.action(['reading_next', 'reading_restart', 'back_to_reading_menu', 'back_to_main', 'reading_pause'], handleReadingNavigation);
+bot.action(/mother_topic_(\d+)/, (ctx) => {
+  const id = parseInt(ctx.match[1]);
+  ctx.answerCbQuery('🚀 Boshlandi!');
+  startMotherQuiz(ctx, id);
+});
 
-// Handle quiz answer selection
-bot.action(/ans_[A-D]/, handleAnswer);
+bot.action(/mother_ans_\d+/, handleMotherAnswer);
+bot.action('end_mother_quiz', handleEndQuiz);
 
-// Handle next question button
-bot.action('next_question', handleAnswer);
-
-// Handle pause button
-bot.action('pause_quiz', handleAnswer);
-
-// Handle resume button
-bot.action('resume_quiz', handleAnswer);
-
-// Handle restart button
-bot.action('restart_quiz', handleAnswer);
-
-// Launch bot
-bot.launch()
-  .then(() => {
-    console.log("Bot muvaffaqiyatli ishga tushdi!");
-  })
-  .catch((err) => {
-    console.error('Botni ishga tushirishda xatolik:', err);
+// ==================== REYTING ====================
+bot.action('show_top', async (ctx) => {
+  ctx.answerCbQuery();
+  const top = await getLeaderboard();
+  let text = top.length === 0 ? '🏆 Hozircha reyting boʻsh' : '🏆 TOP-10 ONA TILI BILIMDONLARI\n\n';
+  top.forEach((u, i) => {
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
+    text += `${medal} <a href="tg://user?id=${u.id}">${u.first_name}</a> — ${u.bestScore}/20\n`;
   });
+  text += '\n🔄 /top – yangilash';
+  ctx.editMessageText?.(text, { parse_mode: 'HTML', disable_web_page_preview: true })
+    || ctx.reply(text, { parse_mode: 'HTML', disable_web_page_preview: true });
+});
 
-// Enable graceful stop
+bot.command('top', async (ctx) => {
+  const top = await getLeaderboard();
+  let text = top.length === 0 ? '🏆 Reyting boʻsh' : '🏆 TOP-10 ONA TILI BILIMDONLARI\n\n';
+  top.forEach((u, i) => {
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
+    text += `${medal} <a href="tg://user?id=${u.id}">${u.first_name}</a> — ${u.bestScore}/20\n`;
+  });
+  ctx.reply(text, { parse_mode: 'HTML', disable_web_page_preview: true });
+});
+
+// ==================== BROADCAST – HAMMA ODAMGA BORADI! ====================
+bot.command('broadcast', async (ctx) => {
+  // Check admin rights
+  if (ctx.from.id !== 6464089189) return ctx.reply('❌ Ruxsat yo\'q!');
+
+  const text = ctx.message.text.replace('/broadcast', '').trim();
+  if (!text) return ctx.reply('📝 Iltimos, xabar matnini yozing:\n/broadcast Salom hammaga!');
+
+  const users = getStats().users;
+  if (users.length === 0) return ctx.reply('ℹ️ Hozircha foydalanuvchilar mavjud emas');
+
+  const statusMsg = await ctx.reply(`📤 Xabar yuborish boshlandi...\nJami: ${users.length} ta foydalanuvchi\nYuborildi: 0 ta\nBloklagan: 0 ta\nXatolar: 0 ta`);
+  const startTime = Date.now();
+
+  let sent = 0, blocked = 0, errors = 0;
+  const batchSize = 20;
+  const delay = 1000;
+
+  try {
+    for (let i = 0; i < users.length; i += batchSize) {
+      const batch = users.slice(i, i + batchSize);
+      
+      // Update status
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const remaining = Math.ceil(((users.length - i) / batchSize) * (elapsed / (i / batchSize + 1)));
+      
+      await ctx.telegram.editMessageText(
+        statusMsg.chat.id,
+        statusMsg.message_id,
+        undefined,
+        `📤 Xabar yuborilmoqda...\n` +
+        `🔄 Jarayon: ${Math.min(i + batchSize, users.length)}/${users.length} (${Math.round(((i + batchSize) / users.length) * 100)}%)\n` +
+        `✅ Yuborildi: ${sent} ta\n` +
+        `❌ Bloklagan: ${blocked} ta\n` +
+        `⚠️ Xatolar: ${errors} ta\n` +
+        `⏳ Qolgan vaqt: ${remaining > 0 ? remaining + ' soniya' : 'tez orada'}`,
+        { parse_mode: 'Markdown' }
+      );
+
+      // Process batch
+      const results = await Promise.allSettled(
+        batch.map(user => 
+          bot.telegram.sendMessage(
+            user.id,
+            `📢 *E'lon*\\n\\n${text}\\n\\n_📅 ${new Date().toLocaleString('uz\\-UZ')}_`,
+            { parse_mode: 'MarkdownV2' }
+          )
+          .then(() => 'sent')
+          .catch(e => {
+            if (e.response && e.response.error_code === 403) return 'blocked';
+            console.error(`Xabar yuborishda xatolik (${user.id}):`, e.message);
+            return 'error';
+          })
+        )
+      );
+
+      // Update counters
+      results.forEach(result => {
+        if (result.status === 'fulfilled') {
+          if (result.value === 'sent') sent++;
+          else if (result.value === 'blocked') blocked++;
+          else errors++;
+        } else {
+          errors++;
+        }
+      });
+
+      // Add delay between batches
+      if (i + batchSize < users.length) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    // Final status
+    await ctx.telegram.editMessageText(
+      statusMsg.chat.id,
+      statusMsg.message_id,
+      undefined,
+      `✅ Xabar yuborish yakunlandi!\n\n` +
+      `📊 Natijalar:\n` +
+      `• Jami: ${users.length} ta\n` +
+      `• Yuborildi: ${sent} ta\n` +
+      `• Bloklagan: ${blocked} ta\n` +
+      `• Xatolar: ${errors} ta`,
+      { parse_mode: 'Markdown' }
+    );
+
+  } catch (error) {
+    console.error('Broadcast xatosi:', error);  
+    await ctx.telegram.editMessageText(
+      statusMsg.chat.id,
+      statusMsg.message_id,
+      undefined,
+      `❌ Xabar yuborishda xatolik yuz berdi: ${error.message}\n\n` +
+      `📊 Joriy holat:\n` +
+      `• Yuborildi: ${sent} ta\n` +
+      `• Bloklagan: ${blocked} ta\n` +
+      `• Xatolar: ${errors} ta\n\n` +
+      `Iltimos, qaytadan urinib ko'ring.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+});
+
+// BOTNI ISHGA TUSHIRISH
+bot.launch();
+console.log('🤖 BOT 100% ISHLAYDI! Ona tili + Ingliz tili + Reyting – hammasi tayyor!');
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
