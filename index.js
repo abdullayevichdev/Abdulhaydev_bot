@@ -3,60 +3,6 @@ const { Telegraf, session } = require('telegraf');
 const { Markup } = require('telegraf');
 const config = require('./config');
 
-// ==================== KANALGA A'ZO BO'LISHNI TEKSHIRISH ====================
-const CHANNEL_USERNAME = '@Robotexnika_LSL';
-const CHANNEL_CHAT_ID = -1002226585734; // O'z kanalingiz ID sini qo'ying
-
-// Kanalga a'zo ekanligini tekshirish funksiyasi
-const checkChannelMembership = async (ctx, next) => {
-  try {
-    const userId = ctx.from.id;
-    
-    // /start va tekshirish tugmasi uchun tekshirmaymiz
-    if ((ctx.message && ctx.message.text === '/start') || (ctx.callbackQuery && ctx.callbackQuery.data === 'check_membership')) {
-      return next();
-    }
-
-    // Kanalga a'zolikni tekshirish
-    const member = await ctx.telegram.getChatMember(CHANNEL_CHAT_ID, userId);
-    
-    if (['member', 'administrator', 'creator'].includes(member.status)) {
-      return next();
-    } else {
-      // A'zo bo'lmasa, kanalga qo'shilishni so'rash
-      await ctx.reply(
-        `⚠️ <b>Botdan foydalanish uchun kanalimizga a'zo bo'ling!</b>\n\n` +
-        `Quyidagi kanalga obuna bo'ling va "✅ Tekshirish" tugmasini bosing:`,
-        {
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '📢 Kanalga Qoʻshilish', url: `https://t.me/${CHANNEL_USERNAME.substring(1)}` }],
-              [{ text: '✅ Tekshirish', callback_data: 'check_membership' }]
-            ]
-          }
-        }
-      );
-    }
-  } catch (error) {
-    console.error('Kanal tekshirish xatosi:', error);
-    return next();
-  }
-};
-
-// Asosiy menyuni ko'rsatish funksiyasi
-const showMainMenu = async (ctx) => {
-  await ctx.reply(
-    '🇺🇿 Assalomu alaykum! Bot yangilandi!\n\nQuyidagi testlardan birini tanlang:',
-    Markup.inlineKeyboard([
-      [Markup.button.callback('🧪 Oddiy Test', 'start_quiz')],
-      [Markup.button.callback('📖 Reading Test', 'start_reading')],
-      [Markup.button.callback('📚 Ona tili testlari', 'mother_tongue')],
-      [Markup.button.callback('🏆 Reyting', 'show_top')]
-    ])
-  );
-};
-
 const BOT_TOKEN = process.env.BOT_TOKEN || process.env.TOKEN || config.botToken;
 if (!BOT_TOKEN) {
   console.error('BOT TOKEN topilmadi. Iltimos `.env` faylida BOT_TOKEN o\'rniga tokenni qo\'shing.');
@@ -73,73 +19,24 @@ const { startReadingTest, selectReadingLevel, startSelectedReadingTest, handleRe
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
-// Kanal tekshirish middleware ni qo'shish
-bot.use(checkChannelMembership);
-
 // XATOLIKLAR
 bot.catch((err, ctx) => {
   console.error('XATO:', err);
   ctx.reply('❌ Xatolik yuz berdi. /start bosing.');
 });
 
-// ==================== KANAL A'ZOLIGINI TEKSHIRISH CALLBACK ====================
-bot.action('check_membership', async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const userId = ctx.from.id;
-    
-    const member = await ctx.telegram.getChatMember(CHANNEL_CHAT_ID, userId);
-    
-    if (['member', 'administrator', 'creator'].includes(member.status)) {
-      await ctx.editMessageText(
-        '✅ <b>Rahmat! Kanalga a\'zo bo\'lganingiz uchun.</b>\n\n' +
-        'Endi botdan to\'liq foydalanishingiz mumkin!',
-        { 
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: [] }
-        }
-      );
-      
-      // Asosiy menyuni ko'rsatish
-      await showMainMenu(ctx);
-    } else {
-      await ctx.answerCbQuery('❌ Hali kanalga a\'zo bo\'lmagansiz!', { show_alert: true });
-    }
-  } catch (error) {
-    console.error('A\'zolik tekshirish xatosi:', error);
-    await ctx.answerCbQuery('❌ Xatolik yuz berdi!', { show_alert: true });
-  }
-});
-
 // /start – ASOSIY MENU
-bot.start(async (ctx) => {
+bot.start((ctx) => {
   addUser(ctx.from);
-  
-  try {
-    const userId = ctx.from.id;
-    const member = await ctx.telegram.getChatMember(CHANNEL_CHAT_ID, userId);
-    
-    if (['member', 'administrator', 'creator'].includes(member.status)) {
-      await showMainMenu(ctx);
-    } else {
-      await ctx.reply(
-        `⚠️ <b>Botdan foydalanish uchun kanalimizga a'zo bo'ling!</b>\n\n` +
-        `Quyidagi kanalga obuna bo'ling va "✅ Tekshirish" tugmasini bosing:`,
-        {
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '📢 Kanalga Qoʻshilish', url: `https://t.me/${CHANNEL_USERNAME.substring(1)}` }],
-              [{ text: '✅ Tekshirish', callback_data: 'check_membership' }]
-            ]
-          }
-        }
-      );
-    }
-  } catch (error) {
-    console.error('Start handler xatosi:', error);
-    await showMainMenu(ctx);
-  }
+  ctx.reply(
+    '🇺🇿 Assalomu alaykum! Bot yangilandi!\n\nQuyidagi testlardan birini tanlang:',
+    Markup.inlineKeyboard([
+      [Markup.button.callback('🧪 Oddiy Test', 'start_quiz')],
+      [Markup.button.callback('📖 Reading Test', 'start_reading')],
+      [Markup.button.callback('📚 Ona tili testlari', 'mother_tongue')],
+      [Markup.button.callback('🏆 Reyting', 'show_top')]
+    ])
+  );
 });
 
 // ==================== INGLIZ TILI TESTLARI ====================
