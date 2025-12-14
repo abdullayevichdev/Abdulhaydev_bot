@@ -19,10 +19,10 @@ const { startReadingTest, selectReadingLevel, startSelectedReadingTest, handleRe
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
-// XATOLIKLAR
+// XATOLIKLAR – foydalanuvchiga faqat console’da chiqadi
 bot.catch((err, ctx) => {
   console.error('XATO:', err);
-  ctx.reply('❌ Xatolik yuz berdi. /start bosing.');
+  // Foydalanuvchiga hech narsa yozilmaydi
 });
 
 // /start – ASOSIY MENU
@@ -93,19 +93,20 @@ bot.command('top', async (ctx) => {
   ctx.reply(text, { parse_mode: 'HTML', disable_web_page_preview: true });
 });
 
-// ==================== BROADCAST – HAMMA ODAMGA BORADI! ====================
+// ==================== BROADCAST – HAMMA FOYDALANUVCHIGA XABAR YUBORISH ====================
 bot.command('broadcast', async (ctx) => {
-  // Check admin rights
+  // Faqat admin (sizning ID'ingiz)
   if (ctx.from.id !== 6464089189) return ctx.reply('❌ Ruxsat yo\'q!');
 
   const text = ctx.message.text.replace('/broadcast', '').trim();
-  if (!text) return ctx.reply('📝 Iltimos, xabar matnini yozing:\n/broadcast Salom hammaga!');
+  if (!text) {
+    return ctx.reply('📝 Iltimos, xabar matnini yozing:\n/broadcast Salom hammaga!');
+  }
 
   const users = getStats().users;
-  if (users.length === 0) return ctx.reply('ℹ️ Hozircha foydalanuvchilar mavjud emas');
+  if (users.length === 0) return ctx.reply('ℹ️ Hozircha foydalanuvchilar yo‘q');
 
   const statusMsg = await ctx.reply(`📤 Xabar yuborish boshlandi...\nJami: ${users.length} ta foydalanuvchi\nYuborildi: 0 ta\nBloklagan: 0 ta\nXatolar: 0 ta`);
-  const startTime = Date.now();
 
   let sent = 0, blocked = 0, errors = 0;
   const batchSize = 20;
@@ -114,11 +115,37 @@ bot.command('broadcast', async (ctx) => {
   try {
     for (let i = 0; i < users.length; i += batchSize) {
       const batch = users.slice(i, i + batchSize);
-      
-      // Update status
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+
+      const results = await Promise.allSettled(
+        batch.map(user => 
+          bot.telegram.sendMessage(
+            user.id,
+            `📢 *E'lon*\\n\\n${text}\\n\\n_📅 ${new Date().toLocaleString('uz-UZ')}_`,
+            { parse_mode: 'MarkdownV2', disable_web_page_preview: true }
+          )
+          .then(() => 'sent')
+          .catch(e => {
+            if (e.response && e.response.error_code === 403) return 'blocked';
+            console.error(`Xabar yuborishda xatolik (${user.id}):`, e.message);
+            return 'error';
+          })
+        )
+      );
+
+      results.forEach(result => {
+        if (result.status === 'fulfilled') {
+          if (result.value === 'sent') sent++;
+          else if (result.value === 'blocked') blocked++;
+          else errors++;
+        } else {
+          errors++;
+        }
+      });
+
+      // Status yangilash
+      const elapsed = Math.floor((Date.now() - Date.now()) / 1000);
       const remaining = Math.ceil(((users.length - i) / batchSize) * (elapsed / (i / batchSize + 1)));
-      
+
       await ctx.telegram.editMessageText(
         statusMsg.chat.id,
         statusMsg.message_id,
@@ -132,41 +159,12 @@ bot.command('broadcast', async (ctx) => {
         { parse_mode: 'Markdown' }
       );
 
-      // Process batch
-      const results = await Promise.allSettled(
-        batch.map(user => 
-          bot.telegram.sendMessage(
-            user.id,
-            `📢 *E'lon*\\n\\n${text}\\n\\n_📅 ${new Date().toLocaleString('uz\\-UZ')}_`,
-            { parse_mode: 'MarkdownV2' }
-          )
-          .then(() => 'sent')
-          .catch(e => {
-            if (e.response && e.response.error_code === 403) return 'blocked';
-            console.error(`Xabar yuborishda xatolik (${user.id}):`, e.message);
-            return 'error';
-          })
-        )
-      );
-
-      // Update counters
-      results.forEach(result => {
-        if (result.status === 'fulfilled') {
-          if (result.value === 'sent') sent++;
-          else if (result.value === 'blocked') blocked++;
-          else errors++;
-        } else {
-          errors++;
-        }
-      });
-
-      // Add delay between batches
       if (i + batchSize < users.length) {
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
 
-    // Final status
+    // Yakuniy status
     await ctx.telegram.editMessageText(
       statusMsg.chat.id,
       statusMsg.message_id,
@@ -181,17 +179,16 @@ bot.command('broadcast', async (ctx) => {
     );
 
   } catch (error) {
-    console.error('Broadcast xatosi:', error);  
+    console.error('Broadcast xatosi:', error);
     await ctx.telegram.editMessageText(
       statusMsg.chat.id,
       statusMsg.message_id,
       undefined,
-      `❌ Xabar yuborishda xatolik yuz berdi: ${error.message}\n\n` +
-      `📊 Joriy holat:\n` +
+      `❌ Xabar yuborishda xatolik yuz berdi.\n\n` +
+      `📊 Joriy natija:\n` +
       `• Yuborildi: ${sent} ta\n` +
       `• Bloklagan: ${blocked} ta\n` +
-      `• Xatolar: ${errors} ta\n\n` +
-      `Iltimos, qaytadan urinib ko'ring.`,
+      `• Xatolar: ${errors} ta`,
       { parse_mode: 'Markdown' }
     );
   }
@@ -199,6 +196,6 @@ bot.command('broadcast', async (ctx) => {
 
 // BOTNI ISHGA TUSHIRISH
 bot.launch();
-console.log('🤖 BOT 100% ISHLAYDI! Ona tili + Ingliz tili + Reyting – hammasi tayyor!');
+console.log('🤖 BOT 100% ISHLAYDI! Ona tili + Ingliz tili + Reyting + Broadcast – hammasi tayyor!');
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
