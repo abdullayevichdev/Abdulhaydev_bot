@@ -14,7 +14,11 @@ const startMotherQuiz = async (ctx, topicIndex) => {
     score: 0,
     topic: topics[topicIndex]
   };
-  await sendQuestion(ctx);
+  try {
+    await sendQuestion(ctx);
+  } catch (e) {
+    console.error('startMotherQuiz xatosi:', e && e.message ? e.message : e);
+  }
 };
 
 const sendQuestion = async (ctx) => {
@@ -24,22 +28,27 @@ const sendQuestion = async (ctx) => {
   const q = quiz.questions[quiz.current];
   
   // Variantlarni to'g'ri formatda yasash
+  const optionEmojis = ['🅰️', '🅱️', '🆎', '🆑'];
   const buttons = q.options.map((opt, i) => {
     const letter = ['A', 'B', 'C', 'D'][i];
     // Variant matnini olish (A) 8 -> faqat "8" qismi)
     const optionText = opt.substring(3); // "A) " dan keyingi qismini olish
     // Tugma matnida harf va variant matnini ko'rsatish
-    return [Markup.button.callback(`${letter}) ${optionText}`, `mother_ans_${i}`)];
+    return [Markup.button.callback(`${optionEmojis[i] || '📌'} ${letter}) ${optionText}`, `mother_ans_${i}`)];
   });
   
   buttons.push([Markup.button.callback('⏹️ Testni tugatish', 'end_mother_quiz')]);
 
-  await ctx.replyWithHTML(
-    `📚 <b>${quiz.topic}</b>\n\n` +
-    `📝 Savol <b>${quiz.current + 1}</b>/20\n\n` +
-    `${q.question}`,
-    { reply_markup: { inline_keyboard: buttons } }
-  );
+  try {
+    await ctx.replyWithHTML(
+      `📚 <b>${quiz.topic}</b>\n\n` +
+      `📝 Savol <b>${quiz.current + 1}</b>/20\n\n` +
+      `${q.question}`,
+      { reply_markup: { inline_keyboard: buttons } }
+    );
+  } catch (e) {
+    console.error('sendQuestion xatosi:', e && e.message ? e.message : e);
+  }
 };
 
 const handleMotherAnswer = async (ctx) => {
@@ -89,7 +98,11 @@ const handleMotherAnswer = async (ctx) => {
     }
 
     // Alohida xabar sifatida javobni yuborish
-    await ctx.replyWithHTML(resultMessage);
+    try {
+      await ctx.replyWithHTML(resultMessage);
+    } catch (e) {
+      console.error('replyWithHTML xatosi:', e && e.message ? e.message : e);
+    }
 
     // Keyingi savolga o'tish
     quiz.current++;
@@ -102,13 +115,15 @@ const handleMotherAnswer = async (ctx) => {
 
   } catch (error) {
     console.error('handleMotherAnswer xatosi:', error);
-    await ctx.reply('❌ Javobni qayta ishlashda xatolik yuz berdi.');
+    try { await ctx.reply('❌ Javobni qayta ishlashda xatolik yuz berdi.'); } catch (e) { console.error('notify user error:', e && e.message ? e.message : e); }
   }
 };
 
 const handleEndQuiz = async (ctx) => {
-  await ctx.answerCbQuery('Test tugadi!');
-  await endQuiz(ctx);
+  try {
+    await ctx.answerCbQuery('Test tugadi!');
+  } catch (e) { console.error('answerCbQuery xatosi:', e && e.message ? e.message : e); }
+  try { await endQuiz(ctx); } catch (e) { console.error('endQuiz xatosi:', e && e.message ? e.message : e); }
 };
 
 const endQuiz = async (ctx) => {
@@ -154,7 +169,9 @@ const endQuiz = async (ctx) => {
     `${emoji} ${comment}\n\n` +
     `🔄 Boshqa testlar uchun /start bosing!`;
 
-  await ctx.replyWithHTML(resultText);
+  try {
+    await ctx.replyWithHTML(resultText);
+  } catch (e) { console.error('endQuiz reply xatosi:', e && e.message ? e.message : e); }
   
   delete activeQuizzes[userId];
 };

@@ -1,5 +1,3 @@
-const { getCorrectIndex } = require('./helpers');
-
 // Default timer durations (in seconds)
 const DEFAULT_QUIZ_TIMER = 10; // 10 seconds for regular quiz
 const READING_TIMER = 30; // 30 seconds for reading tests

@@ -10,15 +10,15 @@ const readingTests = JSON.parse(fs.readFileSync(readingTestsPath, 'utf8'));
 const startReadingTest = (ctx) => {
   ctx.session = {};
   return ctx.reply(
-    'Reading test boshlanmoqda! O\'zingizga mos darajani tanlang:',
+    '📖 Reading test boshlanmoqda!\n\n📊 O\'zingizga mos darajani tanlang:',
     Markup.inlineKeyboard([
-      [Markup.button.callback('A1', 'reading_A1')],
-      [Markup.button.callback('A2', 'reading_A2')],
-      [Markup.button.callback('B1', 'reading_B1')],
-      [Markup.button.callback('B2', 'reading_B2')],
-      [Markup.button.callback('C1', 'reading_C1')],
-      [Markup.button.callback('C2', 'reading_C2')],
-      [Markup.button.callback('🔙 Orqaga', 'back_to_main')]
+      [Markup.button.callback('🟢 A1', 'reading_A1')],
+      [Markup.button.callback('🔵 A2', 'reading_A2')],
+      [Markup.button.callback('🟡 B1', 'reading_B1')],
+      [Markup.button.callback('🟠 B2', 'reading_B2')],
+      [Markup.button.callback('🔴 C1', 'reading_C1')],
+      [Markup.button.callback('🟣 C2', 'reading_C2')],
+      [Markup.button.callback('🔙 Asosiy menyu', 'back_to_main')]
     ])
   );
 };
@@ -37,7 +37,7 @@ const selectReadingLevel = async (ctx) => {
   };
 
   await ctx.editMessageText(
-    `Siz ${level} darajadagi reading testini tanladingiz!\n\nTest ${readingTests[level].length} ta savoldan iborat.\n\nTayyormisiz?`,
+    `🎯 Siz <b>${level}</b> darajadagi reading testini tanladingiz!\n\n📝 Test <b>${readingTests[level].length}</b> ta savoldan iborat.\n\n🚀 Tayyormisiz?`,
     { 
       parse_mode: 'HTML',
       reply_markup: {
@@ -61,14 +61,15 @@ const sendReadingQuestion = async (ctx) => {
     const question = questions[questionIndex];
     
     // Format the message with the reading passage and question
-    const message = `📖 *Reading Passage (${questionIndex + 1}/${questions.length})*\n\n` +
+    const message = `📖 <b>Reading Passage (${questionIndex + 1}/${questions.length})</b>\n\n` +
                    `${question.passage}\n\n` +
-                   `*Savol:* ${question.question}`;
+                   `❓ <b>Savol:</b> ${question.question}`;
 
     // Create answer buttons
     const answerButtons = question.options.map((option, index) => {
       const letter = String.fromCharCode(65 + index); // A, B, C, D
-      return [Markup.button.callback(`${letter}. ${option}`, `reading_ans_${index}`)];
+      const emoji = ['🅰️', '🅱️', '🆎', '🆑'][index] || '📌';
+      return [Markup.button.callback(`${emoji} ${letter}. ${option}`, `reading_ans_${index}`)];
     });
 
     // Add navigation and pause buttons
@@ -78,8 +79,7 @@ const sendReadingQuestion = async (ctx) => {
     ]);
 
     // Send the question
-    const sentMessage = await ctx.reply(message, {
-      parse_mode: 'Markdown',
+    const sentMessage = await ctx.replyWithHTML(message, {
       reply_markup: {
         inline_keyboard: answerButtons
       }
@@ -102,6 +102,9 @@ const sendReadingQuestion = async (ctx) => {
 
 const handleReadingAnswer = async (ctx, answerIndex) => {
   try {
+    // Avval callback query ni javoblaymiz
+    await ctx.answerCbQuery();
+    
     // Handle pause button
     if (ctx.match && ctx.match[0] === 'reading_pause') {
       if (ctx.session.timer) {
@@ -110,7 +113,7 @@ const handleReadingAnswer = async (ctx, answerIndex) => {
         // Save current state
         ctx.session.isPaused = true;
         
-        await ctx.answerCbQuery('Test to\'xtatildi');
+        await ctx.answerCbQuery('⏸️ Test to\'xtatildi');
         
         // Show only the Restart button
         return ctx.editMessageReplyMarkup({
@@ -121,7 +124,19 @@ const handleReadingAnswer = async (ctx, answerIndex) => {
       }
       return ctx.answerCbQuery();
     }
+    
+    // Session tekshirish
+    if (!ctx.session || !ctx.session.questions) {
+      return await ctx.reply('❌ Xatolik: Session topilmadi. /start bosing.');
+    }
+    
     const { questionIndex, questions, correctAnswers } = ctx.session;
+    
+    // QuestionIndex tekshirish
+    if (questionIndex >= questions.length) {
+      return await ctx.reply('❌ Xatolik: Savol topilmadi.');
+    }
+    
     const question = questions[questionIndex];
     
     // Stop the timer
@@ -136,30 +151,27 @@ const handleReadingAnswer = async (ctx, answerIndex) => {
     let message = '';
     if (answerIndex !== null && answerIndex === question.correct) {
       ctx.session.correctAnswers = correctAnswers + 1;
-      message = '✅ *To\'g\'ri!*\n\n';
-      await ctx.reply('✅ To\'g\'ri!');
+      message = '✅ <b>TO\'G\'RI JAVOB!</b>\n\n🎉 Ajoyib! Bu to\'g\'ri javob!\n\n';
     } else if (answerIndex !== null) {
       const correctLetter = String.fromCharCode(65 + question.correct);
-      message = `❌ *Noto'g'ri!*\nTo'g'ri javob: *${correctLetter}. ${question.options[question.correct]}*\n\n`;
-      await ctx.reply('❌ Noto\'g\'ri!');
+      message = `❌ <b>NOTO'G'RI JAVOB!</b>\n\n✅ To'g'ri javob: <b>${correctLetter}. ${question.options[question.correct]}</b>\n\n`;
     } else {
       const correctLetter = String.fromCharCode(65 + question.correct);
-      message = `⏰ *Vaqt tugadi!*\nTo'g'ri javob: *${correctLetter}. ${question.options[question.correct]}*\n\n`;
+      message = `⏰ <b>VAQT TUGADI!</b>\n\n✅ To'g'ri javob: <b>${correctLetter}. ${question.options[question.correct]}</b>\n\n`;
     }
 
     // Add explanation if available
     if (question.explanation) {
-      message += `💡 *Tushuntirish:* ${question.explanation}\n\n`;
+      message += `💡 <i>Tushuntirish:</i> ${question.explanation}\n\n`;
     }
 
     // Move to next question or show results
     ctx.session.questionIndex++;
     
     if (ctx.session.questionIndex < questions.length) {
-      message += `Keyingi savolga o'tish uchun pastdagi tugmani bosing.`;
+      message += `⏭️ Keyingi savolga o'tish uchun pastdagi tugmani bosing.`;
       
-      const sentMessage = await ctx.reply(message, {
-        parse_mode: 'Markdown',
+      const sentMessage = await ctx.replyWithHTML(message, {
         reply_markup: {
           inline_keyboard: [
             [Markup.button.callback('⏭️ Keyingi savol', 'reading_next')]
@@ -186,28 +198,38 @@ const showReadingResults = async (ctx, previousMessage = '') => {
   const percentage = Math.round((correctAnswers / totalQuestions) * 100);
   
   let message = previousMessage + '\n';
-  message += '📊 *Test yakunlandi!*\n\n';
-  message += `✅ To'g'ri javoblar: *${correctAnswers}* / ${totalQuestions}\n`;
-  message += `📈 Natija: *${percentage}%*\n\n`;
+  message += '🎊 <b>TEST YAKUNLANDI!</b>\n\n';
+  message += `📊 Daraja: <b>${ctx.session.level}</b>\n`;
+  message += `✅ To'g'ri javoblar: <b>${correctAnswers}/${totalQuestions}</b>\n`;
+  message += `📈 Foiz: <b>${percentage}%</b>\n\n`;
   
   // Add some encouragement based on the score
-  if (percentage >= 80) {
-    message += 'Ajoyib natija! Juda yaxshi ish qildingiz! 👏';
+  let emoji = '';
+  if (percentage >= 90) {
+    emoji = '🏆';
+    message += `${emoji} <b>Ajoyib natija! Siz haqiqiy professional!</b>\n\n👏 Juda yaxshi ish qildingiz!`;
+  } else if (percentage >= 75) {
+    emoji = '⭐';
+    message += `${emoji} <b>Juda yaxshi! Zo'r!</b>\n\n👍 Yaxshi ish!`;
   } else if (percentage >= 60) {
-    message += 'Yaxshi ish! Yana bir bor urinib ko\'ring, yaxshiroq natijaga erishasiz.';
+    emoji = '✅';
+    message += `${emoji} <b>Yaxshi natija!</b>\n\n👌 Yana bir bor urinib ko'ring, yaxshiroq natijaga erishasiz!`;
+  } else if (percentage >= 40) {
+    emoji = '📖';
+    message += `${emoji} <b>O'rtacha.</b>\n\n📚 Qo'shimcha mashq qilishingiz kerak. Qayta urinib ko'ring!`;
   } else {
-    message += 'Qo\'shimcha mashq qilishingiz kerak. Qayta urinib ko\'ring!';
+    emoji = '🎯';
+    message += `${emoji} <b>Yana o'qish kerak.</b>\n\n💪 Hechqisi yo'q, davom eting!`;
   }
   
   // Add restart button
-  message += '\n\nYana test ishlashni xohlaysizmi?';
+  message += '\n\n🔄 Yana test ishlashni xohlaysizmi?';
   
-  await ctx.reply(message, {
-    parse_mode: 'Markdown',
+  await ctx.replyWithHTML(message, {
     reply_markup: {
       inline_keyboard: [
         [Markup.button.callback('🔄 Qayta boshlash', 'reading_restart')],
-        [Markup.button.callback('🏠 Bosh menyu', 'back_to_main')]
+        [Markup.button.callback('🏠 Asosiy menyu', 'back_to_main')]
       ]
     }
   });
